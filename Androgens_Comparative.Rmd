@@ -1,0 +1,297 @@
+---
+title: "WSFW_Androgens_Analysis"
+author: "Erik Enbody"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.path='Andr_figs/', echo = FALSE, warning=FALSE, message=FALSE)
+```
+
+```{r import_packages, include=FALSE}
+rm(list=ls())
+
+library(plyr)
+library(ggplot2)
+library(lubridate)
+library(MVN)
+library(lme4)
+library(nlme)
+library(dplyr)
+library(broom)
+library(AICcmodavg)
+library(lsmeans)
+library(estimability)
+library(stargazer)
+library(xtable)
+library(MASS)
+library(psych)
+library(ggsignif)
+library(car)
+library(cowplot)
+```
+
+```{r load_data, include=FALSE}
+wsfw_andr<-read.csv("Enbody_androgens2.csv",header=TRUE)
+Fwsfw_andr <- droplevels(subset(wsfw_andr,Sex!='M'))
+Mwsfw_andr <- droplevels(subset(wsfw_andr,Sex!='F'))
+```
+
+```{r time_delay, include=FALSE}
+#test effect of time deley
+anova(lm(LPlasma.T ~ log(Time_delay_sec) + Subspecies,data=Fwsfw_andr))
+summary(lm(LPlasma.T ~ log(Time_delay_sec) + Subspecies,data=Fwsfw_andr))
+
+anova(lm(LPlasma.T ~ log(Time_delay_sec) + Subspecies,data=Mwsfw_andr))
+summary(lm(LPlasma.T ~ log(Time_delay_sec) + Subspecies,data=Mwsfw_andr))
+#no apparent effect
+
+plot(wsfw_andr$Plasma.T ~ wsfw_andr$Time_delay_sec)
+andr.sr <- droplevels(subset(wsfw_andr, Time_delay_sec<1200))
+plot(andr.sr$LPlasma.T ~ log(andr.sr$Time_delay_sec))
+summary(lm(LPlasma.T ~ log(Time_delay_sec) + Subspecies,data=wsfw_andr))
+
+#Only use those <20min for downstraem analysis
+wsfw_andr <- andr.sr
+
+#Make a dataframe for each sex again, but with new params above
+Fwsfw_andr <- droplevels(subset(wsfw_andr,Sex!='M'))
+Mwsfw_andr <- droplevels(subset(wsfw_andr,Sex!='F'))
+```
+
+
+```{r themeset_ggplot, include=FALSE}
+theme_set <- theme(panel.background=element_blank(), 
+                   panel.grid.minor = element_blank(), 
+                   panel.grid.major = element_blank(),
+                   axis.title.x = element_blank(),
+                   axis.line.x=element_line(colour="black"), 
+                   axis.line.y=element_line(colour="black"),
+                   axis.text.x = element_text(angle = 0, hjust = 0.5,size= rel(1.2), color="black"),
+                   legend.position="none",
+                   axis.title.y = element_text(size = rel(1.2), angle = 90))
+```
+
+We analyzed circulating androgens from `r sum(Fwsfw_andr$Subspecies=='M.a.lorentzi')` adults with unornamented female plumage (*M.a.lorentzi*) and `r sum(Fwsfw_andr$Subspecies=='M.a.moretoni')` adults with ornamented female plumage (*M.a.moretoni*). We also included `r nrow(Mwsfw_andr)` males (`r sum(Mwsfw_andr$Subspecies=='M.a.lorentzi')` from the population with unornamented females and `r sum(Mwsfw_andr$Subspecies=='M.a.moretoni')` from the population with ornamented females). 
+
+###Subsetting without breeding 
+
+Below I plot and perform analyses for both sexes
+
+```{r combined_barplot, fig.width=8}
+
+bar_andr <- ddply(wsfw_andr, c("Subspecies","Sex"), summarise,
+                     N    = length(Plasma.T),
+                     mean = mean(Plasma.T, na.rm=TRUE),
+                     sd   = sd(Plasma.T, na.rm=TRUE),
+                     se   = sd / sqrt(N)
+)
+
+#this is a frankenstein of a code chunk to make this work
+
+plotA<-ggplot(wsfw_andr, aes(x=Subspecies, y=Plasma.T)) + 
+  geom_bar(data=bar_andr,aes(Subspecies, mean, fill = Sex), color="black", stat="identity", position = position_dodge(), width=.9) +
+  geom_point(aes(color=Sex,fill="xfill"), size=1, shape=21,position=position_jitterdodge(dodge.width=0.8)) +
+  geom_errorbar(data=bar_andr, aes(Subspecies, mean, ymin=mean-se, ymax=mean+se, fill=Sex), lwd=1, inherit.aes=TRUE, width=0,position=position_dodge(.9)) +
+  scale_color_manual(values = c("black", "black"), guide=FALSE) +
+  scale_fill_manual(breaks=c("M","F"),values = c("white", "grey45","white")) +
+  theme_bw() +
+  ylab("Testosterone pg/mL") +
+  theme(axis.line.x=element_line(colour="black"), legend.position = c(.99, .98),
+  legend.justification = c("right", "top"),
+  legend.box.just = "right",
+  legend.margin = margin(6, 6, 6, 6),
+        axis.title.x = element_blank(), panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), axis.title.y=element_text(vjust=1.0),
+        text = element_text(size=15), axis.text = element_text(face="italic")) +
+  geom_hline(yintercept=0) + 
+  geom_signif(stat="identity", data=data.frame(x=c(0.8, 1.225), xend=c(1.70, 2.15),
+        y=c(4100, 3800), annotation=c("*", "*")),aes(x=x,xend=xend, y=y, 
+        yend=y, annotation=annotation, group=c(1,2)))
+  
+
+bar_Landr <- ddply(wsfw_andr, c("Subspecies","Sex"), summarise,
+                     N    = length(LPlasma.T),
+                     mean = mean(LPlasma.T, na.rm=TRUE),
+                     sd   = sd(LPlasma.T, na.rm=TRUE),
+                     se   = sd / sqrt(N)
+)
+
+plotB<-ggplot(wsfw_andr, aes(x=Subspecies, y=LPlasma.T)) + 
+  geom_bar(data=bar_Landr,aes(Subspecies, mean, fill = Sex), color="black", stat="identity", position = position_dodge(), width=.9) +
+  geom_point(aes(color=Sex,fill="xfill"), size=1, shape=21,position=position_jitterdodge(dodge.width=0.8)) +
+  geom_errorbar(data=bar_Landr, aes(Subspecies, mean, ymin=mean-se, ymax=mean+se, fill=Sex), lwd=1, inherit.aes=TRUE, width=0,position=position_dodge(.9)) +
+  scale_color_manual(values = c("black", "black"), guide=FALSE) +
+  scale_fill_manual(breaks=c("M","F"),values = c("white", "grey45","white")) +
+  theme_bw() +
+  ylab("Log Testosterone pg/mL") +
+  theme(axis.line.x=element_line(colour="black"), legend.position = c(.99, .98),
+  legend.justification = c("right", "top"),
+  legend.box.just = "right",
+  legend.margin = margin(6, 6, 6, 6),
+        axis.title.x = element_blank(), panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), axis.title.y=element_text(vjust=1.0),
+        text = element_text(size=15), axis.text = element_text(face="italic")) +
+  geom_hline(yintercept=0) 
+
+plot_grid(plotA,plotB)
+
+```
+
+```{r combined_model_assumptions, echo=FALSE, include=FALSE, eval=FALSE}
+
+#Possible transformations
+M1<-lm(Plasma.T ~ Subspecies*Sex, data=wsfw_andr)
+M2<-lm(log(Plasma.T) ~ Subspecies*Sex, data=wsfw_andr)
+M3<-lm(log10(Plasma.T) ~ Subspecies*Sex, data=wsfw_andr)
+
+#explore simple LM
+summary(M1)
+summary(M2)
+summary(M3)
+
+TukeyHSD(aov(M1))
+TukeyHSD(aov(M2))
+TukeyHSD(aov(M3))
+
+hist(resid(M1))
+shapiro.test(resid(M1))
+qqnorm(residuals(M1), ylab='residuals',xlab='Normal scores')
+
+hist(resid(M2))
+shapiro.test(resid(M2))
+qqnorm(residuals(M2), ylab='residuals',xlab='Normal scores')
+
+hist(resid(M3))
+shapiro.test(resid(M3))
+qqnorm(residuals(M3), ylab='residuals',xlab='Normal scores')
+
+#use natural log transformation (already made variable LPlasma.T above)
+
+#Visualize
+boxplot(LPlasma.T ~ Subspecies*Sex, data=wsfw_andr)
+M0 <- lm(LPlasma.T ~ Subspecies*Sex, data=wsfw_andr)
+plot(M0, which=c(1), add.smooth=FALSE)
+
+#Some simple models
+#Model comparison
+M0 <- gls(LPlasma.T ~ Subspecies*Sex, data=wsfw_andr)
+M1A <- gls(LPlasma.T ~ Subspecies*Sex, data=wsfw_andr, weights=varIdent(form=~1 | Subspecies))
+anova(M0,M1A)
+
+M0.lme <- lme(LPlasma.T ~ Subspecies*Sex, data=wsfw_andr, random=~1|ABBBS.No., method='ML')
+lsmeans(M0.lme, pairwise ~ Subspecies*Sex, adjust='tukey')
+
+#Just for completeness, I am also going to check normality with all fixed effects added. 
+
+M4<-lm(Plasma.T ~ Subspecies*Sex + Year + Time_delay_sec + jul_date  + T_aft_sunrise, data=wsfw_andr)
+M5<-lm(log(Plasma.T) ~ Subspecies*Sex + Year + Time_delay_sec + jul_date  + T_aft_sunrise, data=wsfw_andr)
+M6<-lm(log10(Plasma.T) ~ Subspecies*Sex + Year + Time_delay_sec + jul_date  + T_aft_sunrise, data=wsfw_andr)
+M7<-lm(sqrt(Plasma.T) ~ Subspecies*Sex + Year + Time_delay_sec + jul_date  + T_aft_sunrise, data=wsfw_andr)
+
+hist(resid(M4))
+shapiro.test(resid(M4))
+qqnorm(residuals(M4), ylab='residuals',xlab='Normal scores')
+
+hist(resid(M5))
+shapiro.test(resid(M5))
+qqnorm(residuals(M5), ylab='residuals',xlab='Normal scores')
+
+hist(resid(M6))
+shapiro.test(resid(M6))
+qqnorm(residuals(M6), ylab='residuals',xlab='Normal scores')
+
+hist(resid(M7))
+shapiro.test(resid(M7))
+qqnorm(residuals(M7), ylab='residuals',xlab='Normal scores')
+
+#Even with all the fixed effects added, ln transformation still looks the best
+
+```
+
+```{r combined_models_fixed_effects, echo=FALSE,include=TRUE, results='asis'}
+D1=lme(LPlasma.T ~ Subspecies*Sex + Subspecies*Year + jul_date + Time_delay_sec + T_aft_sunrise, data=wsfw_andr, method='ML',random=~1|ABBBS.No.)
+D2=lme(LPlasma.T ~ Subspecies*Sex + Subspecies*Year + jul_date + Time_delay_sec, data=wsfw_andr, method='ML',random=~1|ABBBS.No.)
+D3=lme(LPlasma.T ~ Subspecies*Sex + Subspecies*Year + jul_date, data=wsfw_andr, method='ML',random=~1|ABBBS.No.)
+D4=lme(LPlasma.T ~ Subspecies*Sex + Subspecies*Year, data=wsfw_andr, method='ML',random=~1|ABBBS.No.)
+D5=lme(LPlasma.T ~ Subspecies*Sex + Year, data=wsfw_andr, method='ML', random=~1|ABBBS.No.)
+D6=lme(LPlasma.T ~ Subspecies*Sex, data=wsfw_andr, method='ML', random=~1|ABBBS.No.)
+
+model.names <- c("Subspecies*Sex + Subspecies*Year+ Julian Date +  Time Delay + T after sunrise", "Subspecies*Sex + Subspecies*Year + Julian Date + Time Delay", "Subspecies*Sex + Subspecies*Year + Julian Date","Subspecies*Sex + Subspecies*Year", "Subspecies*Sex + Year", "Subspecies*Sex")
+
+summ.table <- do.call(rbind, lapply(list(D1,D2,D3,D4,D5,D6), broom::glance))
+table.cols <- c("AIC")
+reported.table <- summ.table[table.cols]
+
+reported.table2 <- bbmle::AICtab(D1,D2,D3,D4,D5,D6, weights = TRUE, sort = FALSE, mnames = model.names)
+reported.table2[["AIC"]]  <- summ.table[["AIC"]]
+
+stargazer(print(reported.table2), type='html')
+
+```
+
+```{r combined_models_variance,include=FALSE, echo=FALSE}
+
+M0<-gls(LPlasma.T ~ Subspecies*Year +Subspecies*Sex + jul_date, data=wsfw_andr,  method='ML')
+M1<-gls(LPlasma.T ~ Subspecies*Year +Subspecies*Sex + jul_date, data=wsfw_andr, method='ML',weights=varIdent(form=~1 | Subspecies)) 
+M2<-gls(LPlasma.T ~ Subspecies*Year +Subspecies*Sex + jul_date, data=wsfw_andr, method='ML',weights=varIdent(form=~1 | Year)) 
+M3<-gls(LPlasma.T ~ Subspecies*Year +Subspecies*Sex + jul_date, data=wsfw_andr, method='ML',weights=varIdent(form=~1 | Subspecies * Sex)) 
+M4<-gls(LPlasma.T ~ Subspecies*Year +Subspecies*Sex + jul_date, data=wsfw_andr, method='ML',weights=varIdent(form=~1 | Subspecies * Sex * Year))
+M5<-gls(LPlasma.T ~ Subspecies*Year +Subspecies*Sex + jul_date, data=wsfw_andr, method='ML',weights=varIdent(form=~1 | Subspecies * Year)) 
+
+#Compare models using anova
+anova(M0,M1,M2,M3,M4,M5)
+
+#use variance correction ssp*sex
+
+```
+
+```{r combined_model_print, include=TRUE, echo=FALSE, results='asis'}
+
+vfSubspeciesSex<-varIdent(form = ~1 | Subspecies*Sex)
+
+nb.final.md.vf2=lme(LPlasma.T ~ Subspecies*Sex + Subspecies*Year + jul_date, data=wsfw_andr, method='ML', random=~1|ABBBS.No., weights=vfSubspeciesSex)
+
+nb.fm<-summary(nb.final.md.vf2)
+stargazer(round(nb.fm$tTable,3), type='html')
+```
+
+```{r lsmeans_bothsexes, include=TRUE}
+lsmeans(nb.final.md.vf2, pairwise ~ Subspecies * Sex, adjust='tukey')
+```
+
+```{r combined_androgen_detection, include=FALSE}
+
+
+#Calc proportion of M.a.lorentzi with androgen detected
+round(nrow(filter(wsfw_andr, andr.detected==1 & Subspecies=='M.a.lorentzi' & Sex=='F')) / nrow(filter(wsfw_andr, Subspecies=='M.a.lorentzi'& Sex=='F')),2)
+
+#Calc proportion of M.a.moretoni with androgen detected
+round(nrow(filter(wsfw_andr, andr.detected==1 & Subspecies=='M.a.moretoni' & Sex=='F')) / nrow(filter(wsfw_andr, Subspecies=='M.a.moretoni' & Sex=='F')),2)
+
+#Calc proportion of M M.a.lorentzi with androgen detected
+round(nrow(filter(wsfw_andr, andr.detected==1 & Subspecies=='M.a.lorentzi' & Sex=='M')) / nrow(filter(wsfw_andr, Subspecies=='M.a.lorentzi'& Sex=='M')),2)
+
+#Calc proportion of M M.a.moretoni with androgen detected
+round(nrow(filter(wsfw_andr, andr.detected==1 & Subspecies=='M.a.moretoni' & Sex=='M')) / nrow(filter(wsfw_andr, Subspecies=='M.a.moretoni' & Sex=='M')),2)
+
+wsfw_andr$minT_compiled <- as.factor(wsfw_andr$minT_compiled)
+plot(wsfw_andr$Year ~ wsfw_andr$andr.detected)
+nrow(filter(wsfw_andr, minT_compiled=='yes' & Subspecies=='M.a.lorentzi')) #25
+nrow(filter(wsfw_andr, minT_compiled=='yes' & Subspecies=='M.a.moretoni')) #61
+
+detec<-glm(andr.detected ~ Subspecies, family=binomial, data=Fwsfw_andr)
+nb.detec2<-summary(glm(andr.detected ~ Subspecies, family=binomial, data=Fwsfw_andr))
+summary(glm(andr.detected ~ Subspecies, family=binomial, data=Mwsfw_andr))
+
+#males
+nb.detecM<-summary(glm(andr.detected ~ Subspecies, family=binomial, data=Mwsfw_andr))
+
+```
+
+We analyzed circulating T from `r sum(Fwsfw_andr$Subspecies=='M.a.lorentzi')` adult females and `r sum(Mwsfw_andr$Subspecies=='M.a.lorentzi')` adult males in the *M.a.lorentzi* population with unornamented females and `r sum(Fwsfw_andr$Subspecies=='M.a.moretoni')` adult females and `r sum(Mwsfw_andr$Subspecies=='M.a.moretoni')` adult males in the *M.a.moretoni* population with ornamented males. A greater proportion of ornamented female samples had detectable levels of T (`r round(nrow(filter(wsfw_andr, andr.detected==1 & Subspecies=='M.a.moretoni' & Sex=='F')) / nrow(filter(wsfw_andr, Subspecies=='M.a.moretoni' & Sex=='F')),2)`) than did unornamented female samples (`r round(nrow(filter(wsfw_andr, andr.detected==1 & Subspecies=='M.a.lorentzi' & Sex=='F')) / nrow(filter(wsfw_andr, Subspecies=='M.a.lorentzi' & Sex=='F')),2)` ; glm: z= `r round(nb.detec2$coefficients[2,3],3)`, df=`r nb.detec2$df[2]`, p=`r round(nb.detec2$coefficients[2,4],3)`). Probability of T detection did not differ between males of each population (*moretoni*: `r round(nrow(filter(wsfw_andr, andr.detected==1 & Subspecies=='M.a.moretoni' & Sex=='M')) / nrow(filter(wsfw_andr, Subspecies=='M.a.moretoni' & Sex=='M')),2)` vs. *lorentzi*: `r round(nrow(filter(wsfw_andr, andr.detected==1 & Subspecies=='M.a.lorentzi' & Sex=='M')) / nrow(filter(wsfw_andr, Subspecies=='M.a.lorentzi' & Sex=='M')),2)` ; glm: z= `r round(nb.detecM$coefficients[2,3],3)`, df=`r nb.detecM$df[2]`, p=`r round(nb.detecM$coefficients[2,4],3)`).
+
+The top model for the effect of different predictors on circulating T levels included the interaction between subspecies and sex, the interaction between subspecies and year, and julian date (Table 1; we report AIC values for stepwise model comparisons in Table S1). Circulating T was significantly predicted by the interaction between subspecies and sex and also year (Table 1). Between sex and between population comparisons (following a Tukey’s adjustment for multiple comparisons) of circulating T levels indicate that ornamented females had higher levels of T than did unornamented females and females of both populations were lower in circulating T than males (Table 2). Males differed in the opposite direction; males of *M.a.lorentzi*, where females are unornamented, had higher levels of circulating T than did males in *M.a.moretoni*, where females are ornamented (Table 2). 

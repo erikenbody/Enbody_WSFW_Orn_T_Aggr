@@ -1,0 +1,371 @@
+---
+title: "Enbody_WSFW_Aggr"
+author: "Erik Enbody"
+date: "11/8/2017"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.path='CombinedAnalysisFigs/', echo = FALSE, warning=FALSE, message=FALSE)
+```
+
+```{r dependencies, include=FALSE}
+rm(list=ls())
+
+library(ggplot2)
+library(xtable)
+library(car)
+library(lme4)
+library(nlme)
+library(stargazer)
+library(MVN)
+library(plyr)
+library(dplyr)
+library(ggsignif)
+library(cowplot)
+library(htmlTable)
+```
+
+```{r import_data, include=FALSE}
+#USE
+response <- read.csv("Enbody_WSFW_mount_response.csv", header=TRUE)
+binresp <- read.csv("binresp.csv", header=TRUE)
+
+```
+
+```{r ggplot_theme, include=FALSE}
+theme_set <- theme(panel.background=element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.grid.major = element_blank(),
+        axis.title.x = element_blank(),
+        axis.line.x=element_line(colour="black"), 
+        axis.line.y=element_line(colour="black"),
+        axis.text.x = element_text(angle = 0, hjust = 0.5,size= rel(1.2), color="black"),
+        legend.position="none",
+        axis.title.y = element_text(size = rel(1.2), angle = 90))
+
+```
+
+### Summary statistics, assumptions, and PCA
+
+PCA assumes multivariate normality. Testing assumption here and followup natural log transformation. 
+
+```{r response_pca_assumptions, include=TRUE, fig.width=8}
+response_pca<-response[,c("Trial_Sex", "Leapfrog_prop","duet_song_rate", "total_T_less_5_proportion", "lat_5", "Duet_lat", "Flyby_proportion")]
+row.names(response_pca) <- response_pca$Trial_Sex ; response_pca$Trial_Sex <- NULL
+#Add upper bonds data to latency columns for individuals that did not cross distance threshold
+response_pca$lat_5[is.na(response_pca$lat_5)] <- max(response_pca$lat_5, na.rm=TRUE)
+response_pca$Duet_lat[is.na(response_pca$Duet_lat)] <- max(response_pca$Duet_lat, na.rm=TRUE)
+
+par(mfrow=c(1,3))
+
+uniPlot(response_pca, type="histogram")
+normS1<-uniNorm(response_pca, type="SW", desc=TRUE)
+normS1$`Shapiro-Wilk's Normality Test`
+
+log_response_pca<-log(response_pca + 1)
+
+uniPlot(log_response_pca, type="histogram")
+normS2<-uniNorm(log_response_pca, type="SW", desc=TRUE)
+normS2$`Shapiro-Wilk's Normality Test`
+```
+
+Results of running PCA using `prcomp`
+
+```{r response_pca, include=TRUE, results='asis'}
+PCA_response <- prcomp(response_pca, scale = TRUE, center = TRUE) 
+
+response$pc1_PCA_response<-PCA_response$x[,1]
+response$pc2_PCA_response<-PCA_response$x[,2]
+response$pc3_PCA_response<-PCA_response$x[,3]
+
+PCA_response_prcomp_variation<-data.frame(summary(PCA_response)$importance[1:2,1:3])
+PCA_response_prcomp_loadings<-data.frame(PCA_response$rotation[,1:3])
+PCA_response_prcomp_table<-rbind(PCA_response_prcomp_variation,PCA_response_prcomp_loadings)
+
+htmlTable(round(PCA_response_prcomp_table,3))
+#can copy and paste to excel
+```
+
+Plot to visualize relationships
+
+```{r response_plot_subspecies_sex, include=TRUE, fig.width=8}
+response_plot <-response
+response_plot$Sex<-as.character(response_plot$Sex)
+response_plot$Sex[response_plot$Sex == "F" & response_plot$Subspecies == 'M.a.moretoni'] = "Ornamented F"
+response_plot$Sex[response_plot$Sex == "F" & response_plot$Subspecies == 'M.a.lorentzi'] = "Unornamented F"
+response_plot$Sex[response_plot$Sex == "M"] = "M"
+
+summary_responseA <- ddply(response_plot, c("Subspecies", "Sex"), summarise,
+                     N    = length(pc1_PCA_response),
+                     mean = mean(pc1_PCA_response, na.rm=TRUE),
+                     sd   = sd(pc1_PCA_response, na.rm=TRUE),
+                     se   = sd / sqrt(N)
+)
+
+plotA<-ggplot(summary_responseA, aes(Subspecies, mean)) +
+  geom_bar(aes(fill = Sex), stat="identity", position = position_dodge(), width=.9) +
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se, fill=Sex), inherit.aes=TRUE,width=.1,
+        position=position_dodge(.9)) +
+  geom_signif(stat="identity", data=data.frame(x=c(0.875, 1.875), xend=c(1.125, 2.125),
+        y=c(-1.35, 1.30), annotation=c("NS", "NS")),aes(x=x,xend=xend, y=y, 
+        yend=y, annotation=annotation, group=c(1,2))) +
+  geom_signif(comparisons = list(c("M.a.lorentzi", "M.a.moretoni")), annotations="**",
+        tip_length = 0, vjust=0.5) +
+  theme_bw() +
+  ylab("PC1") +
+  theme(axis.line.x=element_line(colour="black"), legend.position = "none", 
+        axis.title.x = element_blank(), panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), axis.title.y=element_text(vjust=1.0),
+        text = element_text(size=12), axis.text = element_text(face="italic")) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) +
+  geom_hline(yintercept=0) +
+  scale_fill_manual(values = c("dodgerblue4","grey45","burlywood3"))
+
+summary_responseB <- ddply(response_plot, c("Subspecies", "Sex"), summarise,
+                     N    = length(pc2_PCA_response),
+                     mean = mean(pc2_PCA_response, na.rm=TRUE),
+                     sd   = sd(pc2_PCA_response, na.rm=TRUE),
+                     se   = sd / sqrt(N))
+
+plotB<-ggplot(summary_responseB, aes(Subspecies, mean)) +
+  geom_bar(aes(fill = Sex), stat="identity", position = position_dodge(), width=.9) +
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se, fill=Sex), inherit.aes=TRUE,width=.1,
+        position=position_dodge(.9)) +
+  geom_signif(stat="identity", data=data.frame(x=c(0.875, 1.875), xend=c(1.125, 2.125),
+        y=c(-1.35, 1.30), annotation=c("NS", "NS")),aes(x=x,xend=xend, y=y, 
+        yend=y, annotation=annotation, group=c(1,2))) +
+  geom_signif(comparisons = list(c("M.a.lorentzi", "M.a.moretoni")), annotations="NS",
+        tip_length = 0, vjust=0.5) +
+  theme_bw() +
+  ylab("PC2") +
+  theme(axis.line.x=element_line(colour="black"), legend.position = "none", 
+        axis.title.x = element_blank(), panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), axis.title.y=element_text(vjust=1.0),
+        text = element_text(size=12), axis.text = element_text(face="italic")) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) +
+  geom_hline(yintercept=0) +
+  scale_fill_manual(values = c("dodgerblue4","grey45","burlywood3"))
+
+summary_responseC <- ddply(response_plot, c("Subspecies", "Sex"), summarise,
+                     N    = length(pc3_PCA_response),
+                     mean = mean(pc3_PCA_response, na.rm=TRUE),
+                     sd   = sd(pc3_PCA_response, na.rm=TRUE),
+                     se   = sd / sqrt(N))
+
+plotC<-ggplot(summary_responseC, aes(Subspecies, mean)) +
+  geom_bar(aes(fill = Sex), stat="identity", position = position_dodge(), width=.9) +
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se, fill=Sex), inherit.aes=TRUE,width=.1,
+        position=position_dodge(.9)) +
+  geom_signif(stat="identity", data=data.frame(x=c(0.875, 1.875), xend=c(1.125, 2.125),
+        y=c(-1.35, 1.30), annotation=c("NS", "NS")),aes(x=x,xend=xend, y=y, 
+        yend=y, annotation=annotation, group=c(1,2))) +
+  geom_signif(comparisons = list(c("M.a.lorentzi", "M.a.moretoni")), annotations="*",
+        tip_length = 0, vjust=0.5) +
+  theme_bw() +
+  ylab("PC3") +
+  theme(axis.line.x=element_line(colour="black"), legend.position = c(.95, .25),
+  legend.justification = c("right", "top"),
+  legend.box.just = "right",
+  legend.margin = margin(6, 6, 6, 6),
+        axis.title.x = element_blank(), panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), axis.title.y=element_text(vjust=1.0),
+        text = element_text(size=12), axis.text = element_text(face="italic")) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) +
+  geom_hline(yintercept=0) +
+  scale_fill_manual(values = c("dodgerblue4","grey45","burlywood3"))
+
+#plot_grid(plotA,plotB,plotC,align='h',labels=c('A','B','C'), ncol=3)
+
+plot_grid(plotA,plotC,align='h',labels=c('A','B'), ncol=2)
+
+```
+
+### Analysis of principle components 
+
+```{r model_assumptions_PC1, include=FALSE}
+## Check residuals for normality
+
+#Full model
+S1 = lmer(pc1_PCA_response ~ Subspecies*Sex + (1|MntF) + (1|MntM) + (1|Song_actual), data = response, REML = FALSE)
+
+#Check normality
+resid.S1 <-resid(S1, data = response)
+hist(resid.S1)
+shapiro.test(resid.S1)
+qqnorm(residuals(S1), ylab = "Residuals", xlab= "Normal Scores")
+##Meets normality assumptions
+
+#Visualize residual distribution by subspecies and stimulus type
+op <- par(mfrow = c(2, 2), mar = c(2, 2, 2, 2))
+plot(S1, which = c(1), col = 1, add.smooth = FALSE,caption = "")
+plot(response$Subspecies, resid.S1, xlab="Subspecies",ylab="Residuals")
+plot(response$Sex, resid.S1, xlab="Sex",ylab="Residuals")
+par(op) 
+#Homoscadacity looks fine
+
+#Compare variance structure of groups. First, set variance structure variables 
+vfSubspecies <- varIdent(form = ~1 | Subspecies)
+vfSex <- varIdent(form = ~1 | Sex)
+vfSubspeciesSex <- varIdent(form = ~1 | Subspecies*Sex)
+
+#Visualize
+boxplot(pc1_PCA_response ~ Subspecies, data=response)
+M0 <- lm(pc1_PCA_response ~ Subspecies, data=response)
+plot(M0, which=c(1), add.smooth=FALSE)
+
+boxplot(pc1_PCA_response ~ Sex, data=response)
+M1 <- lm(pc1_PCA_response ~ Sex, data=response)
+plot(M0, which=c(1), add.smooth=FALSE)
+
+
+#Model comparison
+SV0 <- gls(pc1_PCA_response ~ Subspecies, data=response)
+SV1 <- gls(pc1_PCA_response ~ Subspecies, data=response, weights=vfSubspecies)
+SV2 <- gls(pc1_PCA_response ~ Subspecies, data=response, weights=vfSex)
+SV3 <- gls(pc1_PCA_response ~ Subspecies, data=response, weights=vfSubspeciesSex)
+anova(SV0,SV1,SV2,SV3)
+#variance correction doesn't improve model
+```
+
+```{r model_assumptions_PC2, include=FALSE}
+## Check residuals for normality
+
+#Full model
+S1 = lmer(pc2_PCA_response ~ Subspecies*Sex + (1|MntF) + (1|MntM) + (1|Song_actual), data = response, REML = FALSE)
+
+#Check normality
+resid.S1 <-resid(S1, data = response)
+hist(resid.S1)
+shapiro.test(resid.S1)
+qqnorm(residuals(S1), ylab = "Residuals", xlab= "Normal Scores")
+##Meets normality assumptions
+
+#Visualize residual distribution by subspecies and stimulus type
+op <- par(mfrow = c(2, 2), mar = c(2, 2, 2, 2))
+plot(S1, which = c(1), col = 1, add.smooth = FALSE,caption = "")
+plot(response$Subspecies, resid.S1, xlab="Subspecies",ylab="Residuals")
+plot(response$Sex, resid.S1, xlab="Sex",ylab="Residuals")
+par(op) 
+#Homoscadacity looks fine
+
+#Compare variance structure of groups. First, set variance structure variables 
+vfSubspecies <- varIdent(form = ~1 | Subspecies)
+vfSex <- varIdent(form = ~1 | Sex)
+vfSubspeciesSex <- varIdent(form = ~1 | Subspecies*Sex)
+
+#Visualize
+boxplot(pc2_PCA_response ~ Subspecies, data=response)
+M0 <- lm(pc2_PCA_response ~ Subspecies, data=response)
+plot(M0, which=c(1), add.smooth=FALSE)
+
+boxplot(pc2_PCA_response ~ Sex, data=response)
+M1 <- lm(pc2_PCA_response ~ Sex, data=response)
+plot(M0, which=c(1), add.smooth=FALSE)
+
+
+#Model comparison
+SV0 <- gls(pc2_PCA_response ~ Subspecies, data=response)
+SV1 <- gls(pc2_PCA_response ~ Subspecies, data=response, weights=vfSubspecies)
+SV2 <- gls(pc2_PCA_response ~ Subspecies, data=response, weights=vfSex)
+SV3 <- gls(pc2_PCA_response ~ Subspecies, data=response, weights=vfSubspeciesSex)
+anova(SV0,SV1,SV2,SV3)
+#variance correction doesn't improve model
+```
+
+```{r model_assumptions_pc3, include=FALSE}
+## Check residuals for normality
+
+#Full model
+S1 = lmer(pc3_PCA_response ~ Subspecies*Sex + (1|MntF) + (1|MntM) + (1|Song_actual), data = response, REML = FALSE)
+
+#Check normality
+resid.S1 <-resid(S1, data = response)
+hist(resid.S1)
+shapiro.test(resid.S1)
+qqnorm(residuals(S1), ylab = "Residuals", xlab= "Normal Scores")
+##Meets normality assumptions
+
+#Visualize residual distribution by subspecies and stimulus type
+op <- par(mfrow = c(2, 2), mar = c(2, 2, 2, 2))
+plot(S1, which = c(1), col = 1, add.smooth = FALSE,caption = "")
+plot(response$Subspecies, resid.S1, xlab="Subspecies",ylab="Residuals")
+plot(response$Sex, resid.S1, xlab="Sex",ylab="Residuals")
+par(op) 
+#Homoscadacity looks fine
+
+#Compare variance structure of groups. First, set variance structure variables 
+vfSubspecies <- varIdent(form = ~1 | Subspecies)
+vfSex <- varIdent(form = ~1 | Sex)
+vfSubspeciesSex <- varIdent(form = ~1 | Subspecies*Sex)
+
+#Visualize
+boxplot(pc3_PCA_response ~ Subspecies, data=response)
+M0 <- lm(pc3_PCA_response ~ Subspecies, data=response)
+plot(M0, which=c(1), add.smooth=FALSE)
+
+boxplot(pc3_PCA_response ~ Sex, data=response)
+M1 <- lm(pc3_PCA_response ~ Sex, data=response)
+plot(M0, which=c(1), add.smooth=FALSE)
+
+
+#Model comparison
+SV0 <- gls(pc3_PCA_response ~ Subspecies, data=response)
+SV1 <- gls(pc3_PCA_response ~ Subspecies, data=response, weights=vfSubspecies)
+SV2 <- gls(pc3_PCA_response ~ Subspecies, data=response, weights=vfSex)
+SV3 <- gls(pc3_PCA_response ~ Subspecies, data=response, weights=vfSubspeciesSex)
+anova(SV0,SV1,SV2,SV3)
+#variance correction doesn't improve model
+```
+
+```{r model_table, results='asis'}
+#Full models for each PC
+S1.full = lmer(pc1_PCA_response ~ Subspecies*Sex + (1|MntF) + (1|MntM) + (1|Song_actual), data = response, REML = FALSE)
+same.tab<-Anova(S1.full,type="II",test.statistic = "Chisq") 
+same.sum<-summary(S1.full)
+
+S2.full = lmer(pc2_PCA_response ~ Subspecies*Sex + (1|MntF) + (1|MntM) + (1|Song_actual), data = response, REML = FALSE)
+same.tab.pc2<-Anova(S2.full,type="II",test.statistic = "Chisq") 
+same.sum.pc2<-summary(S2.full)
+
+S3.full = lmer(pc3_PCA_response ~ Subspecies*Sex + (1|MntF) + (1|MntM) + (1|Song_actual), data = response, REML = FALSE)
+same.tab.pc3<-Anova(S3.full,type="II",test.statistic = "Chisq") 
+same.sum.pc3<-summary(S3.full)
+
+
+levels = c("PC1:Subspecies", "PC1:Sex","PC1:Subspecies*Sex","PC2:Subspecies","PC2:Sex","PC2:Subspecies*Sex", "PC3:Subspecies","PC3:Sex","PC3:Subspecies*Sex")
+
+pca_lm_tab <- data.frame(row.names=levels,
+                 Estimate = rep(NA, length(levels)), 
+                 Std.Error = rep(NA, length(levels)), 
+                 t.value = rep(NA, length(levels)),
+                 Chisq = rep(NA, length(levels)),
+                 Df = rep(NA, length(levels)),
+                 p = rep(NA, length(levels)))
+
+pca_lm_tab[,'Estimate'] <- c(same.sum$coefficients[2:4,1], same.sum.pc2$coefficients[2:4,1], same.sum.pc3$coefficients[2:4,1])
+pca_lm_tab[,'Std.Error'] <- c(same.sum$coefficients[2:4,2], same.sum.pc2$coefficients[2:4,2], same.sum.pc3$coefficients[2:4,2])
+pca_lm_tab[,'t.value'] <- c(same.sum$coefficients[2:4,3], same.sum.pc2$coefficients[2:4,3], same.sum.pc3$coefficients[2:4,3])
+pca_lm_tab[, 'Chisq'] <- c(same.tab$Chisq, same.tab.pc2$Chisq, same.tab.pc3$Chisq)
+pca_lm_tab[, 'Df'] <- c(same.tab$Df, same.tab.pc2$Df, same.tab.pc3$Df)
+pca_lm_tab[, 'p'] <- c(same.tab$`Pr(>Chisq)`, same.tab.pc2$`Pr(>Chisq)`, same.tab.pc3$`Pr(>Chisq)`)
+
+htmlTable(round(pca_lm_tab,3))
+```
+
+### Evaluate probability of response
+
+```{r binary_response, include=FALSE}
+Fgbin<-glm(Fbinresp ~ Subspecies + Song_actual, data=binresp, family='binomial')
+Fsgbin<-summary(Fgbin)
+
+Mgbin<-glm(Mbinresp ~ Subspecies + Song_actual, data=binresp, family='binomial')
+Msgbin<-summary(Mgbin)
+
+Mgbin<-glm(Mbinresp ~ Subspecies + Song_actual, data=binresp, family='binomial')
+Msgbin<-summary(Mgbin)
+```
+
+Females responded in `r sum(binresp$Fbinresp==1)` out of `r nrow(binresp)` total trials (`r round(sum(binresp$Fbinresp==1)/nrow(binresp) * 100,0)`% of trials). Males responded together with the female in `r sum(binresp$Fbinresp==1 & binresp$Mbinresp==1)` of these trials (`r round(sum(binresp$Fbinresp==1 & binresp$Mbinresp==1)/sum(binresp$Fbinresp==1) * 100,0)`% of responsive trials) and we only analyzed responses witha  female response. In total, we completed `r sum(response$Subspecies=='M.a.moretoni' & response$Sex=='F')` presentations in the ornamented female population (M.a.moretoni) and `r sum(response$Subspecies=='M.a.lorentzi' & response$Sex=='F')` presentations in the unornamented female population (M.a.lorentzi). Neither subspecies (glm females: z=`r round(Fsgbin$coefficients[[2,3]],3)`,p=`r round(Fsgbin$coefficients[2,4],3)`; glm males: z=`r round(Msgbin$coefficients[[2,3]],3)`,p=`r round(Msgbin$coefficients[2,4],3)`) or song (glm females: z=`r round(Fsgbin$coefficients[[3,3]],3)`, p=`r round(Fsgbin$coefficients[[3,4]],3)`; glm males: z=`r round(Msgbin$coefficients[[3,3]],3)`, p=`r round(Msgbin$coefficients[[3,4]],3)`) predicted the likelihood of response.

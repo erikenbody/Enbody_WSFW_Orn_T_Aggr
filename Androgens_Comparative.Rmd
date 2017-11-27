@@ -1,5 +1,5 @@
 ---
-title: "WSFW_Androgens_Analysis"
+title: "Enbody_WSFW_androgens"
 author: "Erik Enbody"
 date: "`r Sys.Date()`"
 output: html_document
@@ -15,27 +15,21 @@ knitr::opts_chunk$set(fig.path='Andr_figs/', echo = FALSE, warning=FALSE, messag
 rm(list=ls())
 
 library(plyr)
-library(ggplot2)
-library(lubridate)
-library(MVN)
-library(lme4)
-library(nlme)
 library(dplyr)
 library(broom)
-library(AICcmodavg)
+library(ggplot2)
+library(lme4)
+library(nlme)
 library(lsmeans)
-library(estimability)
 library(stargazer)
-library(xtable)
-library(MASS)
-library(psych)
 library(ggsignif)
-library(car)
 library(cowplot)
 ```
 
 ```{r load_data, include=FALSE}
-wsfw_andr<-read.csv("Enbody_androgens2.csv",header=TRUE)
+wsfw_andr <- read.csv("Enbody_WSFW_androgens.csv", header = TRUE)
+wsfw_andr$Year<-as.factor(wsfw_andr$Year)
+
 Fwsfw_andr <- droplevels(subset(wsfw_andr,Sex!='M'))
 Mwsfw_andr <- droplevels(subset(wsfw_andr,Sex!='F'))
 ```
@@ -109,7 +103,7 @@ plotA<-ggplot(wsfw_andr, aes(x=Subspecies, y=Plasma.T)) +
         text = element_text(size=15), axis.text = element_text(face="italic")) +
   geom_hline(yintercept=0) + 
   geom_signif(stat="identity", data=data.frame(x=c(0.8, 1.225), xend=c(1.70, 2.15),
-        y=c(4100, 3800), annotation=c("*", "*")),aes(x=x,xend=xend, y=y, 
+        y=c(4100, 3800), annotation=c("*", "NS")),aes(x=x,xend=xend, y=y, 
         yend=y, annotation=annotation, group=c(1,2)))
   
 
@@ -278,10 +272,9 @@ round(nrow(filter(wsfw_andr, andr.detected==1 & Subspecies=='M.a.lorentzi' & Sex
 #Calc proportion of M M.a.moretoni with androgen detected
 round(nrow(filter(wsfw_andr, andr.detected==1 & Subspecies=='M.a.moretoni' & Sex=='M')) / nrow(filter(wsfw_andr, Subspecies=='M.a.moretoni' & Sex=='M')),2)
 
-wsfw_andr$minT_compiled <- as.factor(wsfw_andr$minT_compiled)
 plot(wsfw_andr$Year ~ wsfw_andr$andr.detected)
-nrow(filter(wsfw_andr, minT_compiled=='yes' & Subspecies=='M.a.lorentzi')) #25
-nrow(filter(wsfw_andr, minT_compiled=='yes' & Subspecies=='M.a.moretoni')) #61
+nrow(filter(wsfw_andr, andr.detected=='0' & Subspecies=='M.a.lorentzi')) #22
+nrow(filter(wsfw_andr, andr.detected=='0' & Subspecies=='M.a.moretoni')) #61
 
 detec<-glm(andr.detected ~ Subspecies, family=binomial, data=Fwsfw_andr)
 nb.detec2<-summary(glm(andr.detected ~ Subspecies, family=binomial, data=Fwsfw_andr))
@@ -292,6 +285,6 @@ nb.detecM<-summary(glm(andr.detected ~ Subspecies, family=binomial, data=Mwsfw_a
 
 ```
 
-We analyzed circulating T from `r sum(Fwsfw_andr$Subspecies=='M.a.lorentzi')` adult females and `r sum(Mwsfw_andr$Subspecies=='M.a.lorentzi')` adult males in the *M.a.lorentzi* population with unornamented females and `r sum(Fwsfw_andr$Subspecies=='M.a.moretoni')` adult females and `r sum(Mwsfw_andr$Subspecies=='M.a.moretoni')` adult males in the *M.a.moretoni* population with ornamented males. A greater proportion of ornamented female samples had detectable levels of T (`r round(nrow(filter(wsfw_andr, andr.detected==1 & Subspecies=='M.a.moretoni' & Sex=='F')) / nrow(filter(wsfw_andr, Subspecies=='M.a.moretoni' & Sex=='F')),2)`) than did unornamented female samples (`r round(nrow(filter(wsfw_andr, andr.detected==1 & Subspecies=='M.a.lorentzi' & Sex=='F')) / nrow(filter(wsfw_andr, Subspecies=='M.a.lorentzi' & Sex=='F')),2)` ; glm: z= `r round(nb.detec2$coefficients[2,3],3)`, df=`r nb.detec2$df[2]`, p=`r round(nb.detec2$coefficients[2,4],3)`). Probability of T detection did not differ between males of each population (*moretoni*: `r round(nrow(filter(wsfw_andr, andr.detected==1 & Subspecies=='M.a.moretoni' & Sex=='M')) / nrow(filter(wsfw_andr, Subspecies=='M.a.moretoni' & Sex=='M')),2)` vs. *lorentzi*: `r round(nrow(filter(wsfw_andr, andr.detected==1 & Subspecies=='M.a.lorentzi' & Sex=='M')) / nrow(filter(wsfw_andr, Subspecies=='M.a.lorentzi' & Sex=='M')),2)` ; glm: z= `r round(nb.detecM$coefficients[2,3],3)`, df=`r nb.detecM$df[2]`, p=`r round(nb.detecM$coefficients[2,4],3)`).
+We analyzed circulating T from `r sum(Fwsfw_andr$Subspecies=='M.a.lorentzi')` adult females and `r sum(Mwsfw_andr$Subspecies=='M.a.lorentzi')` adult males in the *M.a.lorentzi* population with unornamented females and `r sum(Fwsfw_andr$Subspecies=='M.a.moretoni')` adult females and `r sum(Mwsfw_andr$Subspecies=='M.a.moretoni')` adult males in the *M.a.moretoni* population with ornamented females. A greater proportion of ornamented female samples had detectable levels of T (`r round(nrow(filter(wsfw_andr, andr.detected==1 & Subspecies=='M.a.moretoni' & Sex=='F')) / nrow(filter(wsfw_andr, Subspecies=='M.a.moretoni' & Sex=='F')),2)`) than did unornamented female samples (`r round(nrow(filter(wsfw_andr, andr.detected==1 & Subspecies=='M.a.lorentzi' & Sex=='F')) / nrow(filter(wsfw_andr, Subspecies=='M.a.lorentzi' & Sex=='F')),2)`), but this effect was not significant (glm: z= `r round(nb.detec2$coefficients[2,3],3)`, df=`r nb.detec2$df[2]`, p=`r round(nb.detec2$coefficients[2,4],3)`). Probability of T detection also did not differ between males of each population (*moretoni*: `r round(nrow(filter(wsfw_andr, andr.detected==1 & Subspecies=='M.a.moretoni' & Sex=='M')) / nrow(filter(wsfw_andr, Subspecies=='M.a.moretoni' & Sex=='M')),2)` vs. *lorentzi*: `r round(nrow(filter(wsfw_andr, andr.detected==1 & Subspecies=='M.a.lorentzi' & Sex=='M')) / nrow(filter(wsfw_andr, Subspecies=='M.a.lorentzi' & Sex=='M')),2)` ; glm: z= `r round(nb.detecM$coefficients[2,3],3)`, df=`r nb.detecM$df[2]`, p=`r round(nb.detecM$coefficients[2,4],3)`).
 
 The top model for the effect of different predictors on circulating T levels included the interaction between subspecies and sex, the interaction between subspecies and year, and julian date (Table 1; we report AIC values for stepwise model comparisons in Table S1). Circulating T was significantly predicted by the interaction between subspecies and sex and also year (Table 1). Between sex and between population comparisons (following a Tukey’s adjustment for multiple comparisons) of circulating T levels indicate that ornamented females had higher levels of T than did unornamented females and females of both populations were lower in circulating T than males (Table 2). Males differed in the opposite direction; males of *M.a.lorentzi*, where females are unornamented, had higher levels of circulating T than did males in *M.a.moretoni*, where females are ornamented (Table 2). 

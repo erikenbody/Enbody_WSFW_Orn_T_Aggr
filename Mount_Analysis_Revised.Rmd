@@ -1,0 +1,448 @@
+---
+title: "Enbody 2018: Mount response analyses"
+author: "Erik Enbody"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.path='CombinedAnalysisFigs/', echo = FALSE, warning=FALSE, message=FALSE)
+```
+
+```{r dependencies, include=FALSE}
+rm(list=ls())
+
+library(ggplot2)
+library(xtable)
+library(car)
+library(lme4)
+library(nlme)
+library(stargazer)
+library(MVN)
+library(plyr)
+library(dplyr)
+library(ggsignif)
+library(cowplot)
+library(htmlTable)
+```
+
+```{r import_data, include=FALSE}
+response <- read.csv("Enbody_WSFW_mount_responses_revised_renamed.csv", header=TRUE)
+binresp <- read.csv("binresp2.csv", header=TRUE)
+```
+
+```{r ggplot_theme, include=FALSE}
+theme_set <- theme(panel.background=element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.grid.major = element_blank(),
+        axis.title.x = element_blank(),
+        axis.line.x=element_line(colour="black"), 
+        axis.line.y=element_line(colour="black"),
+        axis.text.x = element_text(angle = 0, hjust = 0.5,size= rel(1.2), color="black"),
+        legend.position="none",
+        axis.title.y = element_text(size = rel(1.2), angle = 90))
+```
+
+Subset out breeders (Y or N) prior to running the PCA
+
+```{r subsetbreeders}
+nbresponse<-filter(response,BreedYN=="N")
+```
+
+```{r sample_sizes_nb, eval=FALSE}
+#number of total trials
+nrow(binresp)
+binresp$Fbinresp<-as.factor(binresp$Fbinresp)
+summary(binresp$Fbinresp) 
+binresp$Mbinresp<-as.factor(binresp$Mbinresp)
+summary(binresp$Mbinresp)
+
+summary(binresp$Site) 
+
+summary(nbresponse$Subspecies[nbresponse$Sex=="F"])
+
+#breeding
+summary(response$BreedYN) 
+summary(response$BreedYN[response$Subspecies=="M.a.moretoni"])
+summary(response$BreedYN[response$Subspecies=="M.a.lorentzi"])
+
+#for number per stimuli
+range(summary(binresp$MntM))
+mean(summary(binresp$MntM))
+#etc
+```
+
+First some visualizations of each variation. First off, looking at outliers. 
+
+```{r PCA_recip_variables_nb, include=TRUE, fig.width=8}
+op<-par(mfrow = c(3,2), mar=c(3,3,3,1))
+
+dotchart(nbresponse$duet_song_rate, main="duet")
+dotchart(nbresponse$total_T_less_5_proportion, main="five")
+dotchart(nbresponse$lat_5, main="five lag")
+dotchart(nbresponse$Duet_lat, main="duet lat")
+dotchart(nbresponse$Flyby_proportion, main="flyby proportion")
+dotchart(nbresponse$Leapfrog_prop, main="leapfrog proportion")
+```
+
+PCA assumes multivariate normality. Testing assumption here and followup natural log transformation. 
+
+```{r recip_pca_assumptions_nb, include=TRUE, fig.width=8}
+#Using proportion of total time
+recip_pca<-nbresponse[,c("Trial_Sex", "Leapfrog_prop","duet_song_rate", "total_T_less_5_proportion", "lat_5", "Duet_lat", "Flyby_proportion")]
+row.names(recip_pca) <- recip_pca$Trial_Sex ; recip_pca$Trial_Sex <- NULL
+#Add upper band data to latency columns
+recip_pca$lat_5[is.na(recip_pca$lat_5)] <- max(recip_pca$lat_5, na.rm=TRUE)
+recip_pca$Duet_lat[is.na(recip_pca$Duet_lat)] <- max(recip_pca$Duet_lat, na.rm=TRUE)
+
+par(mfrow=c(1,3))
+
+uniPlot(recip_pca, type="histogram")
+normS1<-uniNorm(recip_pca, type="SW", desc=TRUE)
+normS1$`Shapiro-Wilk's Normality Test`
+
+log_recip_pca<-log(recip_pca + 1)
+
+uniPlot(log_recip_pca, type="histogram")
+normS2<-uniNorm(log_recip_pca, type="SW", desc=TRUE)
+normS2$`Shapiro-Wilk's Normality Test`
+
+```
+
+Results of running PCA using `prcomp`
+
+```{r recip_pca_nb, include=TRUE, results='asis'}
+PCA_recip <- prcomp(log_recip_pca, scale = TRUE, center = TRUE) 
+
+nbresponse$pc1_PCA_recip<-PCA_recip$x[,1]
+nbresponse$pc2_PCA_recip<-PCA_recip$x[,2]
+nbresponse$pc3_PCA_recip<-PCA_recip$x[,3]
+
+PCA_recip_prcomp_variation<-data.frame(summary(PCA_recip)$importance[1:2,1:3])
+PCA_recip_prcomp_loadings<-data.frame(PCA_recip$rotation[,1:3])
+PCA_recip_prcomp_table<-rbind(PCA_recip_prcomp_variation,PCA_recip_prcomp_loadings)
+
+htmlTable(round(PCA_recip_prcomp_table,3))
+```
+
+Plot to visualize relationships: sex and subspecies and stimulus
+
+```{r plot_subspecies_sex_mount_pheno_nb, include=TRUE, fig.width=8}
+#had trouble changing color for females (because it was filled). found weird, useful answer here: https://stackoverflow.com/questions/39235840/change-the-fill-color-of-one-of-the-dodged-bar-in-ggplot
+#this affects the factor levels for later analyses, so I made recip_plot df.
+
+recip_plot <-nbresponse
+recip_plot$Sex<-as.character(recip_plot$Sex)
+recip_plot$Sex[recip_plot$Sex == "F" & recip_plot$Subspecies == 'M.a.moretoni'] = "Ornamented F"
+recip_plot$Sex[recip_plot$Sex == "F" & recip_plot$Subspecies == 'M.a.lorentzi'] = "Unornamented F"
+recip_plot$Sex[recip_plot$Sex == "M"] = "M"
+
+summary_recipA <- ddply(recip_plot, c("Subspecies", "Sex_Mount_Pheno"), summarise,
+                     N    = length(pc1_PCA_recip),
+                     mean = mean(pc1_PCA_recip, na.rm=TRUE),
+                     sd   = sd(pc1_PCA_recip, na.rm=TRUE),
+                     se   = sd / sqrt(N)
+)
+
+plotA<-ggplot(summary_recipA, aes(Subspecies, mean)) +
+  geom_bar(aes(fill = Sex_Mount_Pheno), stat="identity", position = position_dodge(), width=.9,color="black") +
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se, fill=Sex_Mount_Pheno), inherit.aes=TRUE,width=.1,
+        position=position_dodge(.9)) +
+  scale_color_manual(values = c("black", "black"), guide=FALSE) +
+  geom_signif(comparisons = list(c("M.a.lorentzi", "M.a.moretoni")), annotations="**",
+        tip_length = 0, vjust=0.5) +
+  theme_bw() +
+  ylab("PC1") +
+  theme(axis.line.x=element_line(colour="black"), legend.position = "none", 
+        axis.title.x = element_blank(), panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), axis.title.y=element_text(vjust=1.0,family="serif"),
+        text = element_text(size=18), axis.text.x = element_text(face="italic",family="serif")) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 10),limits = c(-2,2)) +
+  geom_hline(yintercept=0) +
+  scale_fill_manual(values = c("grey45", "white","grey45","white"))
+
+summary_recipB <- ddply(recip_plot, c("Subspecies", "Sex_Mount_Pheno"), summarise,
+                     N    = length(pc2_PCA_recip),
+                     mean = mean(pc2_PCA_recip, na.rm=TRUE),
+                     sd   = sd(pc2_PCA_recip, na.rm=TRUE),
+                     se   = sd / sqrt(N)
+)
+
+plotB<-ggplot(summary_recipB, aes(Subspecies, mean)) +
+  geom_bar(aes(fill = Sex_Mount_Pheno), stat="identity", position = position_dodge(), width=.9,color="black") +
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se, fill=Sex_Mount_Pheno), inherit.aes=TRUE,width=.1,
+        position=position_dodge(.9)) +
+  scale_color_manual(values = c("black", "black"), guide=FALSE) +
+  geom_signif(comparisons = list(c("M.a.lorentzi", "M.a.moretoni")), annotations="*",
+        tip_length = 0, vjust=0.5) +
+  theme_bw() +
+  ylab("PC2") +
+  theme(axis.line.x=element_line(colour="black"), legend.position = "none", 
+        axis.title.x = element_blank(), panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), axis.title.y=element_text(vjust=1.0,family="serif"),
+        text = element_text(size=18), axis.text.x = element_text(face="italic",family="serif")) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 10),limits = c(-2,2)) +
+  geom_hline(yintercept=0) +
+  scale_fill_manual(values = c("grey45", "white","grey45","white"))
+
+
+summary_recipC <- ddply(recip_plot, c("Subspecies", "Sex_Mount_Pheno"), summarise,
+                     N    = length(pc3_PCA_recip),
+                     mean = mean(pc3_PCA_recip, na.rm=TRUE),
+                     sd   = sd(pc3_PCA_recip, na.rm=TRUE),
+                     se   = sd / sqrt(N)
+)
+
+plotC<-ggplot(summary_recipC, aes(Subspecies, mean)) +
+  geom_bar(aes(fill = Sex_Mount_Pheno), stat="identity", position = position_dodge(), width=.9,color="black") +
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se, fill=Sex_Mount_Pheno), inherit.aes=TRUE,width=.1,
+        position=position_dodge(.9)) +
+  geom_signif(comparisons = list(c("M.a.lorentzi", "M.a.moretoni")), annotations="**",
+        tip_length = 0, vjust=0.5) +
+  theme_bw() +
+  ylab("PC3") +
+  theme(axis.line.x=element_line(colour="black"), legend.position = c(.95, .95),
+        legend.justification = c("right", "top"),
+        legend.box.just = "right",
+        legend.margin = margin(6, 6, 6, 6),
+        legend.title = element_text(family="serif"),
+        legend.text = element_text(family="serif"),
+        axis.title.x = element_blank(), panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), axis.title.y=element_text(vjust=1.0,family="serif"),
+        text = element_text(size=18), axis.text.x = element_text(face="italic",family="serif")) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 10),limits = c(-2,2)) +
+  geom_hline(yintercept=0) +
+  scale_fill_manual("Stimulus",values = c("grey45", "white","grey45","white"))
+
+#pdf("all_PCs_all_stimuli_nb.pdf",height=8.5,width=11)
+plot_grid(plotA,plotB,plotC,align='h',labels=c('A','B','C'), ncol=3)
+#dev.off()
+```
+
+### Analysis of principle components 
+
+```{r model_assumptions_PC1_recip_nb, include=FALSE}
+#Full model
+S1 = lmer(pc1_PCA_recip ~ Subspecies*Sex*Mount_Pheno + (1|MntF) + (1|MntM) + (1|Song_actual), data = nbresponse, REML = FALSE)
+
+#Check normality
+resid.S1 <-resid(S1, data = nbresponse)
+hist(resid.S1)
+##histogram has some skew, but looks OK for normality
+
+#Visualize residual distribution by subspecies, sex, and stimulus type
+op <- par(mfrow = c(2, 2), mar = c(2, 2, 2, 2))
+plot(S1, which = c(1), col = 1, add.smooth = FALSE,caption = "")
+plot(nbresponse$Subspecies, resid.S1, xlab="Subspecies",ylab="Residuals")
+plot(nbresponse$Sex, resid.S1, xlab="Sex",ylab="Residuals")
+plot(nbresponse$Mount_Pheno, resid.S1, xlab="Sex",ylab="Residuals")
+par(op) 
+#Homoscadacity looks mostly fine
+
+#Compare variance structure of groups. First, set variance structure variables 
+vfSubspecies <- varIdent(form = ~1 | Subspecies)
+vfSex <- varIdent(form = ~1 | Sex)
+vfMountPheno <- varIdent(form = ~1 | Mount_Pheno)
+vfSubspeciesSexMountPheno <- varIdent(form = ~1 | Subspecies*Sex*Mount_Pheno)
+vfSubspeciesSex <- varIdent(form = ~1 | Subspecies*Sex)
+vfSubspeciesMountPheno <- varIdent(form = ~1 | Subspecies*Mount_Pheno)
+vfSexMountPheno <- varIdent(form = ~1 | Sex*Mount_Pheno)
+
+#Visualize
+boxplot(pc1_PCA_recip ~ Subspecies, data=nbresponse)
+M0 <- lm(pc1_PCA_recip ~ Subspecies, data=nbresponse)
+plot(M0, which=c(1), add.smooth=FALSE)
+
+boxplot(pc1_PCA_recip ~ Sex, data=nbresponse)
+M1 <- lm(pc1_PCA_recip ~ Sex, data=nbresponse)
+plot(M0, which=c(1), add.smooth=FALSE)
+
+boxplot(pc1_PCA_recip ~ Mount_Pheno, data=nbresponse)
+M1 <- lm(pc1_PCA_recip ~ Mount_Pheno, data=nbresponse)
+plot(M0, which=c(1), add.smooth=FALSE)
+
+#Model comparison
+SV0 <- gls(pc1_PCA_recip ~ Subspecies, data=nbresponse)
+SV1 <- gls(pc1_PCA_recip ~ Subspecies, data=nbresponse, weights=vfSubspecies)
+SV2 <- gls(pc1_PCA_recip ~ Subspecies, data=nbresponse, weights=vfSex)
+SV3 <- gls(pc1_PCA_recip ~ Subspecies, data=nbresponse, weights=vfMountPheno)
+SV4 <- gls(pc1_PCA_recip ~ Subspecies, data=nbresponse, weights=vfSubspeciesSex)
+SV5 <- gls(pc1_PCA_recip ~ Subspecies, data=nbresponse, weights=vfSubspeciesSexMountPheno)
+SV6 <- gls(pc1_PCA_recip ~ Subspecies, data=nbresponse, weights=vfSubspeciesMountPheno)
+SV7 <- gls(pc1_PCA_recip ~ Subspecies, data=nbresponse, weights=vfSexMountPheno)
+
+anova(SV0,SV1,SV2,SV3,SV4,SV5,SV6,SV7)
+#variance correction doesn't improve model
+```
+
+```{r final_model_PC1_recip_nb, results='asis'}
+#Full model
+S1.full = lmer(pc1_PCA_recip ~ Subspecies*Sex*Mount_Pheno + (1|MntF) + (1|MntM) + (1|Song_actual), data = nbresponse, REML = FALSE)
+
+recip.tab<-Anova(S1.full,type="II",test.statistic = "Chisq") #chisq with type II 
+recip.sum<-summary(S1.full)
+
+S2.full = lmer(pc2_PCA_recip ~ Subspecies*Sex*Mount_Pheno + (1|MntF) + (1|MntM) + (1|Song_actual), data = nbresponse, REML = FALSE)
+recip.tab.pc2<-Anova(S2.full,type="II",test.statistic = "Chisq") #chisq with type II 
+recip.sum.pc2<-summary(S2.full)
+
+S3.full = lmer(pc3_PCA_recip ~ Subspecies*Sex*Mount_Pheno + (1|MntF) + (1|MntM) + (1|Song_actual), data = nbresponse, REML = FALSE)
+recip.tab.pc3<-Anova(S3.full,type="II",test.statistic = "Chisq") #chisq with type II 
+recip.sum.pc3<-summary(S3.full)
+
+levels = c("PC1: Subspecies", "PC1: Sex","PC1: Stimulus","PC1: Subspecies*Sex","PC1: Subspecies*Stimulus","PC1: Sex*Stimulus", "PC1: Subspecies*Sex*Stimulus", "PC2: Subspecies","PC2: Sex","PC2: Stimulus","PC2: Subspecies*Sex","PC2: Subspecies*Stimulus","PC2: Sex*Stimulus", "PC2: Subspecies*Sex*Stimulus", "PC3: Subspecies","PC3: Sex","PC3: Stimulus","PC3: Subspecies*Sex","PC3: Subspecies*Stimulus","PC3: Sex*Stimulus","PC3: Subspecies*Sex*Stimulus")
+
+pca_lm_tab <- data.frame(row.names=levels,
+                 Estimate = rep(NA, length(levels)), 
+                 Std.Error = rep(NA, length(levels)), 
+                 t.value = rep(NA, length(levels)),
+                 Chisq = rep(NA, length(levels)),
+                 Df = rep(NA, length(levels)),
+                 p = rep(NA, length(levels)))
+
+pca_lm_tab[,'Estimate'] <- c(recip.sum$coefficients[2:8,1], recip.sum.pc2$coefficients[2:8,1], recip.sum.pc3$coefficients[2:8,1])
+pca_lm_tab[,'Std.Error'] <- c(recip.sum$coefficients[2:8,2], recip.sum.pc2$coefficients[2:8,2], recip.sum.pc3$coefficients[2:8,2])
+pca_lm_tab[,'t.value'] <- c(recip.sum$coefficients[2:8,3], recip.sum.pc2$coefficients[2:8,3], recip.sum.pc3$coefficients[2:8,3])
+pca_lm_tab[, 'Chisq'] <- c(recip.tab$Chisq, recip.tab.pc2$Chisq, recip.tab.pc3$Chisq)
+pca_lm_tab[, 'Df'] <- c(recip.tab$Df, recip.tab.pc2$Df, recip.tab.pc3$Df)
+pca_lm_tab[, 'p'] <- c(recip.tab$`Pr(>Chisq)`, recip.tab.pc2$`Pr(>Chisq)`, recip.tab.pc3$`Pr(>Chisq)`)
+
+htmlTable(round(pca_lm_tab,3))
+```
+
+#### Plot all variables
+
+```{r response_all_var_ssp, include=TRUE, fig.width=8}
+all_var_plot <-nbresponse
+all_var_plot$Sex<-as.character(all_var_plot$Sex)
+all_var_plot$Sex[all_var_plot$Sex == "F" & all_var_plot$Subspecies == 'M.a.moretoni'] = "Ornamented F"
+all_var_plot$Sex[all_var_plot$Sex == "F" & all_var_plot$Subspecies == 'M.a.lorentzi'] = "Unornamented F"
+all_var_plot$Sex[all_var_plot$Sex == "M"] = "M"
+
+Aduet_song_rate <- ddply(all_var_plot, c("Subspecies"), summarise,
+                     N    = length(duet_song_rate),
+                     mean = mean(duet_song_rate, na.rm=TRUE),
+                     sd   = sd(duet_song_rate, na.rm=TRUE),
+                     se   = sd / sqrt(N)
+)
+
+Plot1<-ggplot(Aduet_song_rate, aes(Subspecies, mean)) +
+  geom_bar(aes(fill = Subspecies), stat="identity", color="black",position = position_dodge(), width=.9) +
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se, fill=Subspecies), inherit.aes=TRUE,width=.1,
+        position=position_dodge(.9)) +
+  scale_fill_manual(values = c("white","grey60")) +
+  theme_bw() +
+  ylab("Duet rate") +
+  theme(axis.line.x=element_line(colour="black"),legend.position = "none",
+        axis.title.x = element_blank(), panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), axis.title.y=element_text(vjust=1.0),
+        text = element_text(size=15), axis.text = element_text(face="italic")) +
+  geom_hline(yintercept=0)
+
+Btotal_T_less_5_proportion <- ddply(all_var_plot, c("Subspecies"), summarise,
+                     N    = length(total_T_less_5_proportion),
+                     mean = mean(total_T_less_5_proportion, na.rm=TRUE),
+                     sd   = sd(total_T_less_5_proportion, na.rm=TRUE),
+                     se   = sd / sqrt(N)
+)
+
+Plot2<-ggplot(Btotal_T_less_5_proportion, aes(Subspecies, mean)) +
+  geom_bar(aes(fill = Subspecies), stat="identity", color="black",position = position_dodge(), width=.9) +
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se, fill=Subspecies), inherit.aes=TRUE,width=.1,
+        position=position_dodge(.9)) +
+  scale_fill_manual(values = c("white","grey60")) +
+  theme_bw() +
+  ylab("Proportion time <5m") +
+  theme(axis.line.x=element_line(colour="black"),legend.position = "none",
+        axis.title.x = element_blank(), panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), axis.title.y=element_text(vjust=1.0),
+        text = element_text(size=15), axis.text = element_text(face="italic")) +
+  geom_hline(yintercept=0)
+
+CDuet_lat <- ddply(all_var_plot, c("Subspecies"), summarise,
+                     N    = length(Duet_lat),
+                     mean = mean(Duet_lat, na.rm=TRUE),
+                     sd   = sd(Duet_lat, na.rm=TRUE),
+                     se   = sd / sqrt(N)
+)
+
+Plot3<-ggplot(CDuet_lat, aes(Subspecies, mean)) +
+  geom_bar(aes(fill = Subspecies), stat="identity", color="black",position = position_dodge(), width=.9) +
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se, fill=Subspecies), inherit.aes=TRUE,width=.1,
+        position=position_dodge(.9)) +
+  scale_fill_manual(values = c("white","grey60")) +
+  theme_bw() +
+  ylab("Latency to duet (sec)") +
+  theme(axis.line.x=element_line(colour="black"),legend.position = "none",
+        axis.title.x = element_blank(), panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), axis.title.y=element_text(vjust=1.0),
+        text = element_text(size=15), axis.text = element_text(face="italic")) +
+  geom_hline(yintercept=0)
+
+EFlyby_proportion <- ddply(all_var_plot, c("Subspecies"), summarise,
+                     N    = length(Flyby_proportion),
+                     mean = mean(Flyby_proportion, na.rm=TRUE),
+                     sd   = sd(Flyby_proportion, na.rm=TRUE),
+                     se   = sd / sqrt(N)
+)
+
+Plot4<-ggplot(EFlyby_proportion, aes(Subspecies, mean)) +
+  geom_bar(aes(fill = Subspecies), stat="identity", color="black",position = position_dodge(), width=.9) +
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se, fill=Subspecies), inherit.aes=TRUE,width=.1,
+        position=position_dodge(.9)) +
+  scale_fill_manual(values = c("white","grey60")) +
+  theme_bw() +
+  ylab("Proportion of flybys") +
+  theme(axis.line.x=element_line(colour="black"),legend.position = "none",
+        axis.title.x = element_blank(), panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), axis.title.y=element_text(vjust=1.0),
+        text = element_text(size=15), axis.text = element_text(face="italic")) +
+  geom_hline(yintercept=0)
+
+Flat_5 <- ddply(all_var_plot, c("Subspecies"), summarise,
+                     N    = length(lat_5),
+                     mean = mean(lat_5, na.rm=TRUE),
+                     sd   = sd(lat_5, na.rm=TRUE),
+                     se   = sd / sqrt(N)
+)
+
+Plot5<-ggplot(Flat_5, aes(Subspecies, mean)) +
+  geom_bar(aes(fill = Subspecies), stat="identity", color="black",position = position_dodge(), width=.9) +
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se, fill=Subspecies), inherit.aes=TRUE,width=.1,
+        position=position_dodge(.9)) +
+  scale_fill_manual(values = c("white","grey60")) +
+  theme_bw() +
+  ylab("Latency to approach <5m (sec)") +
+  theme(axis.line.x=element_line(colour="black"),legend.position = "none",
+        axis.title.x = element_blank(), panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), axis.title.y=element_text(vjust=1.0),
+        text = element_text(size=15), axis.text = element_text(face="italic")) +
+  geom_hline(yintercept=0)
+
+GLeapfrog_prop <- ddply(all_var_plot, c("Subspecies"), summarise,
+                     N    = length(Leapfrog_prop),
+                     mean = mean(Leapfrog_prop, na.rm=TRUE),
+                     sd   = sd(Leapfrog_prop, na.rm=TRUE),
+                     se   = sd / sqrt(N)
+)
+
+Plot6<-ggplot(GLeapfrog_prop, aes(Subspecies, mean)) +
+  geom_bar(aes(fill = Subspecies), stat="identity", color="black",position = position_dodge(), width=.9) +
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se, fill=Subspecies), inherit.aes=TRUE,width=.1,
+        position=position_dodge(.9)) +
+  scale_fill_manual(values = c("white","grey60")) +
+  theme_bw() +
+  ylab("Leapfrog proportion") +
+  theme(axis.line.x=element_line(colour="black"),legend.position = "none",
+        axis.title.x = element_blank(), panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), axis.title.y=element_text(vjust=1.0),
+        text = element_text(size=15), axis.text = element_text(face="italic")) +
+  geom_hline(yintercept=0)
+
+#pdf("all_var_nb.pdf",height=8.5,width=11)
+plot_grid(Plot1,Plot2,Plot3,Plot4,Plot5,Plot6,align='h',labels=c('A','B','C','D','E','F'), ncol=3)
+#dev.off()
+```
+

@@ -1,5 +1,5 @@
 ---
-title: "Enbody_WSFW_androgens"
+title: "Enbody 2018: Androgen analyses"
 author: "Erik Enbody"
 date: "`r Sys.Date()`"
 output: html_document
@@ -71,6 +71,8 @@ theme_set <- theme(panel.background=element_blank(),
 
 We analyzed circulating androgens from `r sum(Fwsfw_andr$Subspecies=='M.a.lorentzi')` adults with unornamented female plumage (*M.a.lorentzi*) and `r sum(Fwsfw_andr$Subspecies=='M.a.moretoni')` adults with ornamented female plumage (*M.a.moretoni*). We also included `r nrow(Mwsfw_andr)` males (`r sum(Mwsfw_andr$Subspecies=='M.a.lorentzi')` from the population with unornamented females and `r sum(Mwsfw_andr$Subspecies=='M.a.moretoni')` from the population with ornamented females). 
 
+Note that this document has been revised during the resubmission. 
+
 ###Subsetting without breeding 
 
 Below I plot and perform analyses for both sexes
@@ -103,7 +105,7 @@ plotA<-ggplot(wsfw_andr, aes(x=Subspecies, y=Plasma.T)) +
         text = element_text(size=15), axis.text = element_text(face="italic")) +
   geom_hline(yintercept=0) + 
   geom_signif(stat="identity", data=data.frame(x=c(0.8, 1.225), xend=c(1.70, 2.15),
-        y=c(4100, 3800), annotation=c("*", "NS")),aes(x=x,xend=xend, y=y, 
+        y=c(4100, 3800), annotation=c("**", "NS")),aes(x=x,xend=xend, y=y, 
         yend=y, annotation=annotation, group=c(1,2)))
   
 
@@ -132,6 +134,38 @@ plotB<-ggplot(wsfw_andr, aes(x=Subspecies, y=LPlasma.T)) +
   geom_hline(yintercept=0) 
 
 plot_grid(plotA,plotB)
+
+
+```
+
+```{r female_only,eval=FALSE}
+#for presentation
+Fbar_andr<-filter(bar_andr, Sex=="F")
+
+plotC<-ggplot(Fwsfw_andr, aes(x=Subspecies, y=Plasma.T)) + 
+  geom_bar(data=Fbar_andr,aes(Subspecies, mean, fill = Subspecies), color="black", stat="identity", position = position_dodge(), width=.9) +
+  geom_point(aes(color=Subspecies,fill="xfill"), size=1, shape=21,position=position_jitterdodge(dodge.width=0.8)) +
+  geom_errorbar(data=Fbar_andr, aes(Subspecies, mean, ymin=mean-se, ymax=mean+se, fill=Subspecies), lwd=1, inherit.aes=TRUE, width=0,position=position_dodge(.9)) +
+  scale_color_manual(values = c("black", "black"), guide=FALSE) +
+  scale_fill_manual(breaks=c("M.a.lorentzi","M.a.moretoni"),values = c("white", "grey65","white")) +
+  theme_bw() +
+  ylab("Testosterone pg/mL") +
+  theme(axis.line.x=element_line(colour="black"), legend.position = "none",
+  legend.justification = c("right", "top"),
+  legend.box.just = "right",
+  legend.margin = margin(6, 6, 6, 6),
+        axis.title.x = element_blank(), panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), axis.title.y=element_text(vjust=1.0),
+        text = element_text(size=36), axis.text = element_text(face="italic")) +
+  geom_hline(yintercept=0) + 
+  ylim(0,1500) +
+  geom_signif(stat="identity", data=data.frame(x=1, xend=2,
+        y=1250, annotation="**"),aes(x=x,xend=xend, y=y, 
+        yend=y, annotation=annotation, group=1))
+
+pdf("Andr_figs/females_androgens.pdf",height=11,width=8.5)
+plotC
+dev.off()
 
 ```
 
@@ -241,6 +275,8 @@ anova(M0,M1,M2,M3,M4,M5)
 
 #use variance correction ssp*sex
 
+MX<-lmer(LPlasma.T ~ Sex + (1|Subspecies), data=wsfw_andr)
+
 ```
 
 ```{r combined_model_print, include=TRUE, echo=FALSE, results='asis'}
@@ -285,6 +321,5 @@ nb.detecM<-summary(glm(andr.detected ~ Subspecies, family=binomial, data=Mwsfw_a
 
 ```
 
-We analyzed circulating T from `r sum(Fwsfw_andr$Subspecies=='M.a.lorentzi')` adult females and `r sum(Mwsfw_andr$Subspecies=='M.a.lorentzi')` adult males in the *M.a.lorentzi* population with unornamented females and `r sum(Fwsfw_andr$Subspecies=='M.a.moretoni')` adult females and `r sum(Mwsfw_andr$Subspecies=='M.a.moretoni')` adult males in the *M.a.moretoni* population with ornamented females. A greater proportion of ornamented female samples had detectable levels of T (`r round(nrow(filter(wsfw_andr, andr.detected==1 & Subspecies=='M.a.moretoni' & Sex=='F')) / nrow(filter(wsfw_andr, Subspecies=='M.a.moretoni' & Sex=='F')),2)`) than did unornamented female samples (`r round(nrow(filter(wsfw_andr, andr.detected==1 & Subspecies=='M.a.lorentzi' & Sex=='F')) / nrow(filter(wsfw_andr, Subspecies=='M.a.lorentzi' & Sex=='F')),2)`), but this effect was not significant (glm: z= `r round(nb.detec2$coefficients[2,3],3)`, df=`r nb.detec2$df[2]`, p=`r round(nb.detec2$coefficients[2,4],3)`). Probability of T detection also did not differ between males of each population (*moretoni*: `r round(nrow(filter(wsfw_andr, andr.detected==1 & Subspecies=='M.a.moretoni' & Sex=='M')) / nrow(filter(wsfw_andr, Subspecies=='M.a.moretoni' & Sex=='M')),2)` vs. *lorentzi*: `r round(nrow(filter(wsfw_andr, andr.detected==1 & Subspecies=='M.a.lorentzi' & Sex=='M')) / nrow(filter(wsfw_andr, Subspecies=='M.a.lorentzi' & Sex=='M')),2)` ; glm: z= `r round(nb.detecM$coefficients[2,3],3)`, df=`r nb.detecM$df[2]`, p=`r round(nb.detecM$coefficients[2,4],3)`).
 
-The top model for the effect of different predictors on circulating T levels included the interaction between subspecies and sex, the interaction between subspecies and year, and julian date (Table 1; we report AIC values for stepwise model comparisons in Table S1). Circulating T was significantly predicted by the interaction between subspecies and sex and also year (Table 1). Between sex and between population comparisons (following a Tukey’s adjustment for multiple comparisons) of circulating T levels indicate that ornamented females had higher levels of T than did unornamented females and females of both populations were lower in circulating T than males (Table 2). Males differed in the opposite direction; males of *M.a.lorentzi*, where females are unornamented, had higher levels of circulating T than did males in *M.a.moretoni*, where females are ornamented (Table 2). 
+
